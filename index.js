@@ -1,85 +1,53 @@
+require('dotenv').config()
+require('./mongo')
 
+const Sentry = require('@sentry/node')
+const Tracing = require('@sentry/tracing')
 const express = require('express')
-const cors = require('cors')
-
 const app = express()
+const cors = require('cors')
 const logger = require('./loggerMiddleware')
+const notFound = require('./middleware/notFound')
+const handleErrors = require('./middleware/handleErrors')
+const indexRouter = require('./controllers/index')
+const notesRouter = require('./controllers/notes')
+const usersRouter = require('./controllers/users')
 
 app.use(cors())
 app.use(express.json())
+app.use('/static', express.static('static/images'))
 app.use(logger)
 
-let notes = [
-  {
-    id: 1,
-    content: 'Juernes lo va a petar',
-    date: '2019-05-30T17:30:31.098Z',
-    important: true
-  },
-  {
-    id: 2,
-    content: 'Juernes va a ser referencia mundial',
-    date: '2019-06-30T17:30:31.098Z',
-    important: true
-  },
-  {
-    id: 3,
-    content: 'Juernes lo vamos a crear Nacho y Gonzalo',
-    date: '2019-07-30T17:30:31.098Z',
-    important: true
-  }
-]
+Sentry.init({
+  dsn: 'https://91327037c8df4efba35217bcee8eb665@o981686.ingest.sentry.io/5936146',
+  integrations: [
+    // enable HTTP calls tracing
+    new Sentry.Integrations.Http({ tracing: true }),
+    // enable Express.js middleware tracing
+    new Tracing.Integrations.Express({ app })
+  ],
 
-app.get('/', (req, res) => {
-  res.send('<h1>Hello World!</h1>')
+  // Set tracesSampleRate to 1.0 to capture 100%
+  // of transactions for performance monitoring.
+  // We recommend adjusting this value in production
+  tracesSampleRate: 1.0
 })
 
-app.get('/api/notes/', (req, res) => {
-  res.json(notes)
-})
+app.use(Sentry.Handlers.requestHandler())
+app.use(Sentry.Handlers.tracingHandler())
 
-app.get('/api/notes/:id', (req, res) => {
-  const id = Number(req.params.id)
-  const note = notes.find(note => note.id === id)
+// Router Controllers
+app.use('/', indexRouter)
+app.use('/api/notes', notesRouter)
+app.use('/api/users', usersRouter)
 
-  if (note) {
-    res.json(note)
-  } else {
-    res.status(404).end()
-  }
-})
+// Manejo de errores
+app.use(notFound)
+app.use(Sentry.Handlers.errorHandler())
+app.use(handleErrors)
 
-app.delete('/api/notes/:id', (req, res) => {
-  const id = Number(req.params.id)
-  notes = notes.filter(note => note.id !== id)
-  res.status(204).end()
-})
-
-app.post('/api/notes/', (req, res) => {
-  const note = req.body
-
-  if (!note || !note.content) {
-    return res.status(400).json({
-      error: 'note.content is missing'
-    })
-  }
-
-  const ids = notes.map(note => note.id)
-  const maxId = Math.max(...ids)
-
-  const newNote = {
-    id: maxId + 1,
-    content: note.content,
-    important: typeof note.important !== 'undefined' ? note.important : false,
-    date: new Date().toDateString()
-  }
-
-  notes = [...notes, newNote]
-
-  res.status(201).json(newNote)
-})
-
-const PORT = process.env.PORT || 3001
+// Ajuste del puerto
+const PORT = process.env.PORT
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
 })
